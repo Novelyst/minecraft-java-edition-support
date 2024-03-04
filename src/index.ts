@@ -3,10 +3,7 @@ import { fs, types, util } from "vortex-api";
 
 const GAME_ID = "minecraft";
 
-// I don't know if this is the proper Microsoft Store ID, but I looked through
-// the registry and a bit and searched around online and couldn't find something
-// that looked more like the MS_ID of Skyrim SE, "BethesdaSoftworks.SkyrimSE-PC"
-// so until I get told otherwise, I'll leave it at this.
+// Probably correct.
 const MS_ID = "Microsoft.4297127D64EC6";
 
 const MOD_FILE_EXT = ".jar";
@@ -76,7 +73,7 @@ function testResourcePack(files: string[], gameID: string) {
   });
 }
 
-// I confess I still have no idea what's going on here. This is copied from
+// I confess I still have little idea what's going on here. This is copied from
 // Picky/Mike's implementation, and since I just wanted to do the same thing
 // he was doing but with .pak files, I figured I'd be fine.
 function installMod(
@@ -109,14 +106,14 @@ function installMod(
 // Here I've still got to figure out how to make it install the archive as an
 // archive. Probably going to reference Creative's extension for this?
 function installResourcePack(
-  files: string[],
+  archive: string[],
   destinationPath: string,
   gameId: string,
   progressDelegate: types.ProgressDelegate,
 ) {
   const modtypeAttr = { type: "setmodtype", value: "resource-pack" };
 
-  const instructions = "";
+  // Need to check for a zip archive and copy that into the folder.
 
   return Promise.resolve({ instructions });
 }
