@@ -1,6 +1,7 @@
-import fs from 'fs';
-import path from 'path';
-import vortex_api from 'vortex-api';
+import { basename, dirname, extname, join, sep } from 'path';
+import { fs, util } from 'vortex-api';
+
+import { IExtensionContext } from 'vortex-api/lib/types/IExtensionContext';
 
 const GAME_ID = 'minecraft';
 const MS_ID = 'Microsoft.4297127D64EC6';
@@ -10,34 +11,35 @@ const RESOURCE_PACK_FILE_EXT = '.mcmeta'
 
 function findGame() {
     try {
-        return vortex_api.util.GameStoreHelper.findByAppId([MS_ID])
+        return util.GameStoreHelper.findByAppId([MS_ID])
             .then(game => game.gamePath);
-    } catch (err) {
+    } catch (error) {
         const LAUNCHER_DEFAULT = 'C:\\Program Files (x86)\\Minecraft Launcher\\MinecraftLauncher.exe'
         
-        if (fs.existsSync(LAUNCHER_DEFAULT)) {
-            return LAUNCHER_DEFAULT
-        } else {
+        try {
+            fs.accessSync(LAUNCHER_DEFAULT, fs.constants.F_OK);
+            return LAUNCHER_DEFAULT;
+        } catch (error) {
             throw new Error('no file exists');
         }
     }
 }
 
 function dataPath() {
-    return path.join(vortex_api.util.getVortexPath('appData'), 'Roaming', '.minecraft');
+    return join(util.getVortexPath('appData'), 'Roaming', '.minecraft');
 }
 
 function modsPath() {
-    return path.join(dataPath(), '~mods');
+    return join(dataPath(), '~mods');
 }
 
 function prepareForModding() {
-    return vortex_api.fs.ensureDirAsync(modsPath());
+    return fs.ensureDirAsync(modsPath());
 }
 
 function testMod(files, gameID) {
     let supported = (gameID === GAME_ID) &&
-      (files.find(file => path.extname(file).toLowerCase() === MOD_FILE_EXT) !== undefined);
+      (files.find(file => extname(file).toLowerCase() === MOD_FILE_EXT) !== undefined);
   
     return Promise.resolve({
       supported,
@@ -46,19 +48,19 @@ function testMod(files, gameID) {
 }
 
 function installMod(files) {
-    const modFile = files.find(file => path.extname(file).toLowerCase() === MOD_FILE_EXT);
-    const index = modFile.indexOf(path.basename(modFile));
-    const rootPath = path.dirname(modFile);
+    const modFile = files.find(file => extname(file).toLowerCase() === MOD_FILE_EXT);
+    const index = modFile.indexOf(basename(modFile));
+    const rootPath = dirname(modFile);
     
     const filtered = files.filter(
-        file => ((file.indexOf(rootPath) !== -1) && (!file.endsWith(path.sep)))
+        file => ((file.indexOf(rootPath) !== -1) && (!file.endsWith(sep)))
     );
   
     const instructions = filtered.map(file => {
         return {
             type: 'copy',
             source: file,
-            destination: path.join(file.substr(index)),
+            destination: join(file.substr(index)),
         };
     });
   
@@ -79,7 +81,7 @@ function installResourcePack(files) {
 
 function testResourcePack(files, gameID) {
     let supported = (gameID === GAME_ID) &&
-      (files.find(file => path.extname(file).toLowerCase() === RESOURCE_PACK_FILE_EXT) !== undefined);
+      (files.find(file => extname(file).toLowerCase() === RESOURCE_PACK_FILE_EXT) !== undefined);
   
     return Promise.resolve({
       supported,
