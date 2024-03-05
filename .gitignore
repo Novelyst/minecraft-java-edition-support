@@ -2,5 +2,3 @@ node_modules
 package-lock.json
 gameart.jpg
 .vscode
-out
-src/utils.ts

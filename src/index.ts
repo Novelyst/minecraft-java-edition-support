@@ -92,7 +92,7 @@ function installMod(
   destinationPath: string,
   gameId: string,
   progressDelegate: types.ProgressDelegate,
-): Promise.<types.IInstallResult> {
+): Promise<types.IInstallResult> {
   files = files.filter(file => path.extname(file) !== '' && !file.endsWith(path.sep));
 
   files = files.filter(file => path.extname(file) === MOD_FILE_EXT);
@@ -116,7 +116,7 @@ function installResourcePack(
   gameId: string,
   progressDelegate: types.ProgressDelegate,
   archivePath: string
-): Promise.<types.IInstallResult> {
+): Promise<types.IInstallResult> {
   console.log(files)[0];
 
   const archive: string[] = [archivePath]
