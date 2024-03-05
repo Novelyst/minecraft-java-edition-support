@@ -68,7 +68,7 @@ function testResourcePack(files: string[], gameID: string) {
     ) !== undefined;
 
   return Promise.resolve({
-    supported: true,
+    supported,
     requiredFiles: [],
   });
 }
@@ -106,16 +106,18 @@ function installMod(
 // Here I've still got to figure out how to make it install the archive as an
 // archive. Probably going to reference Creative's extension for this?
 function installResourcePack(
-  archive: string[],
+  test: string[],
   destinationPath: string,
   gameId: string,
   progressDelegate: types.ProgressDelegate,
 ) {
   const modtypeAttr = { type: "setmodtype", value: "resource-pack" };
 
+  console.log(test);
+
   // Need to check for a zip archive and copy that into the folder.
 
-  return Promise.resolve({ instructions });
+  return true; // Promise.resolve({ instructions });
 }
 
 function main(context: types.IExtensionContext) {
