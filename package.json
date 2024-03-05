@@ -3,7 +3,7 @@
   "vortex-game": "Minecraft: Java Edition",
   "version": "1.0.0",
   "description": "Support for Minecraft: Java Edition.",
-  "main": "./out/index.js",
+  "main": "%appdata%/Vortex/plugins/game-minecraft-java-edition",
   "repository": {
     "type": "git",
     "url": "https://github.com/Novelyst/minecraft-java-edition-support.git"
