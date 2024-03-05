@@ -7,14 +7,16 @@
     "removeComments": true,
     "preserveConstEnums": true,
     "rootDir": "./src",
-    "outDir": "./out",
+    "outDir": "~/AppData/Roaming/Vortex/plugins/game-minecraft-java-edition",
     "jsx": "react",
     "skipLibCheck": true,
     "esModuleInterop": true,
     "sourceMap": false
   },
     "exclude": [
-      "node_modules"
+      ".vscode",
+      "node_modules",
+      "out"
     ],
   "files": [
     "src/index.ts"

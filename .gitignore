@@ -3,3 +3,4 @@ package-lock.json
 gameart.jpg
 .vscode
 out
+src/utils.ts
