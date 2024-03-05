@@ -4,40 +4,41 @@ import { fs, types, util } from "vortex-api";
 const GAME_ID = "minecraft";
 const MS_ID = "Microsoft.4297127D64EC6";
 
-const LAUNCH_DEF = "C:/Program Files (x86)/Minecraft Launcher/"
+const LAUNCH_DEF = "C:/Program Files (x86)/Minecraft Launcher"
 
 const WIN_EXE = "Minecraft.exe"
 const LEG_EXE = "MinecraftLauncher.exe"
 
 const MOD_FILE_EXT = ".jar";
 const RES_PACK_FILE_EXT = ".mcmeta";
-const RES_PACK_ARCH_EXT = ".zip";
+// const RES_PACK_ARCH_EXT = ".zip";
 
 function findGame() {
   try {
-    return util.GameStoreHelper.findByAppId([MS_ID]).then(
-      (game) => game.gamePath
-      );
+    // This method doesn't seem to work, despite my being fairly certain of the
+    // correctness of the Microsoft Store ID. It's harmless, though, so I'll
+    // leave it in for now. Maybe it will end up working for somebody.
+    return util.GameStoreHelper.findByAppId([MS_ID]).then((game) => game.gamePath);
   } catch (error) {
     try {
       fs.accessSync(path.join(LAUNCH_DEF, LEG_EXE), fs.constants.F_OK);
 
       return LAUNCH_DEF;
     } catch (error) {
-      throw new Error("no file exists");
+      console.log("Minecraft was not found.")
     }
   }
 }
 
 function dataPath() {
-  return path.join(util.getVortexPath("appData"), "Roaming", ".minecraft");
+  return path.join(util.getVortexPath("appData"), ".minecraft");
 }
 
 // Add some kind of check that the .minecraft directory is writeable. If not,
 // whine to the user about it.
 
 function modsPath() {
-  return path.join(dataPath(), "~mods");
+  return path.join(dataPath(), "mods");
 }
 
 function findExe(): string {
@@ -48,41 +49,31 @@ function prepareForModding() {
   return fs.ensureDirAsync(modsPath());
 }
 
-function isResourcePack(api: types.IExtensionApi, files: types.IInstruction[]) {
-  // Just check if the installed thingy is a .zip archive, I guess.
-  /* const origFile = files.find(
-    (file) => path.extname(file).toLowerCase() === RESOURCE_PACK_ARCHIVE_EXT
-  ) */
-  
-  console.log(api)
-  console.log(files)
-
-  return 1 === 1
-    ? Promise.resolve(true)
-    : Promise.resolve(false);
-}
-
-// We're checking for a .jar file.
-function testMod(files: string[], gameID: string) {
-  let supported = gameID === GAME_ID && files.find(
-    (file) => path.extname(file).toLowerCase() === MOD_FILE_EXT
-  ) !== undefined;
+function testMod(files: string[], gameID: string, archive: string) {
+  // Check that the game is supported, and that either the archive or a file in
+  // the archive is a .jar file.
+  let supported =
+       gameID === GAME_ID
+    && (path.extname(archive).toLowerCase() === MOD_FILE_EXT
+    || path.extname(files[0]).toLowerCase() === MOD_FILE_EXT);
 
   return Promise.resolve({
     supported,
-    requiredFiles: [],
+    requiredFiles: []
   });
 }
 
-// Here we just want the .mcmeta file.
-function testResourcePack(files: string[], gameID: string) {
-  let supported = gameID === GAME_ID && files.find(
-    (file) => path.extname(file).toLowerCase() === RES_PACK_FILE_EXT,
-  ) !== undefined;
+function testResPack(files: string[], gameID: string, archive: string) {
+  // Check that the game is supported, that the archive isn't a .jar file, and
+  // that it contains an .mcmeta file.
+  let supported =
+       gameID === GAME_ID
+    && !(path.extname(archive).toLowerCase() === MOD_FILE_EXT)
+    && files.find((file) => path.extname(file).toLowerCase() === RES_PACK_FILE_EXT) !== undefined; 
 
   return Promise.resolve({
     supported,
-    requiredFiles: [],
+    requiredFiles: []
   });
 }
 
@@ -90,50 +81,75 @@ function testResourcePack(files: string[], gameID: string) {
 function installMod(
   files: string[],
   destinationPath: string,
-  gameId: string,
+  gameID: string,
   progressDelegate: types.ProgressDelegate,
+  choices: any,
+  unattended: any,
+  archive: string
 ): Promise<types.IInstallResult> {
-  files = files.filter(file => path.extname(file) !== '' && !file.endsWith(path.sep));
+  const modtypeAttr: types.IInstruction = {
+    type: "setmodtype", value: "minecraft-mod"
+  };
 
-  files = files.filter(file => path.extname(file) === MOD_FILE_EXT);
+  if (path.extname(archive).toLowerCase() === MOD_FILE_EXT) {
+    const archives: string[] = [archive]
 
-  const instructions: types.IInstruction[] = files.reduce(
-    (accum: types.IInstruction[], filePath: string) => {    
-      accum.push({
-        type: 'copy',
-        source: filePath,
-        destination: path.basename(filePath),
-      });    
-      return accum;
-    }, []);
-  return Promise.resolve({ instructions });
+    const instructions: types.IInstruction[] = archives.reduce(
+      (accum: types.IInstruction[], archivePath: string) => {    
+        accum.push({
+          type: 'copy',
+          source: archivePath,
+          destination: path.basename(archivePath)
+        });    
+        return accum;
+      }, [ modtypeAttr ]
+    );
+
+    return Promise.resolve({ instructions });
+  } else {
+    const instructions: types.IInstruction[] = files.reduce(
+      (accum: types.IInstruction[], filePath: string) => {    
+        accum.push({
+          type: 'copy',
+          source: filePath,
+          destination: path.basename(filePath)
+        });
+  
+        return accum;
+      }, [ modtypeAttr ]
+    );
+
+    return Promise.resolve({ instructions });
+  }
 }
 
 // Let's just, uh, yoink that archive.
-function installResourcePack(
+function installResPack(
   files: string[],
   destinationPath: string,
-  gameId: string,
+  gameID: string,
   progressDelegate: types.ProgressDelegate,
-  archivePath: string
+  choices: any,
+  unattended: any,
+  archive: string
 ): Promise<types.IInstallResult> {
-  console.log(files)[0];
-
-  const archive: string[] = [archivePath]
-
   const modtypeAttr: types.IInstruction = {
     type: "setmodtype", value: "resource-pack"
   };
 
-  const instructions: types.IInstruction[] = archive.reduce(
-    (accum: types.IInstruction[], chivePath: string) => {    
+  const archives: string[] = [archive]
+
+  const instructions: types.IInstruction[] = archives.reduce(
+    (accum: types.IInstruction[], archivePath: string) => {    
       accum.push({
         type: 'copy',
-        source: chivePath,
-        destination: path.basename(chivePath),
+        source: archivePath,
+        destination: path.basename(archivePath)
       });    
       return accum;
-    }, [ modtypeAttr ]);
+    }, [ modtypeAttr ]
+  );
+
   return Promise.resolve({ instructions });
 }
 
@@ -150,26 +166,17 @@ function main(context: types.IExtensionContext) {
     requiredFiles: [findExe()],
     setup: prepareForModding,
   });
-
-  context.registerInstaller(
-    "minecraft-mod",
-    25,
-    testMod,
-    installMod
-  );
-  context.registerInstaller(
-    "resource-pack",
-    25,
-    testResourcePack,
-    installResourcePack,
+  context.registerInstaller("minecraft-mod", 25, testMod, installMod);
+  context.registerInstaller("resource-pack", 25, testResPack, installResPack);
+  context.registerModType(
+    "minecraft-mod", 25, (gameID) => gameID === GAME_ID,
+    modsPath, () => true,
+    { name: "Default" }
   );
   context.registerModType(
-    "resource-pack",
-    25,
-    (gameID) => gameID === GAME_ID,
-    () => path.join(dataPath(), "resourcepacks"),
-    (instructions) => isResourcePack(context.api, instructions),
-    { name: "Resource Pack" },
+    "resource-pack", 25, (gameID) => gameID === GAME_ID,
+    () => path.join(dataPath(), "resourcepacks"), () => true,
+    { name: "Resource Pack" }
   );
 
   return true;
