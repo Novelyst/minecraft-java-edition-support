@@ -9,8 +9,8 @@ tutorial, the [official Baldur's Gate 3 extension](https://github.com/Nexus-Mods
 
 ## Planned Features for Release
 
-- Installation of .jar files in the .minecraft\\mods directory.
-- Installation of resource packs in the .minecraft\\resourcepacks directory.
+- Installation of .jar and .zip archives without extraction.
+- Deployment of mods and resource packs into the correct directories in .minecraft.
 - Automatic recognition of regular mods and resource packs.
 
 ## Possible Future Additions
