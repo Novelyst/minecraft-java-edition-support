@@ -11,7 +11,7 @@ const LEG_EXE = "MinecraftLauncher.exe"
 
 const MOD_FILE_EXT = ".jar";
 const RES_PACK_FILE_EXT = ".mcmeta";
-// const RES_PACK_ARCH_EXT = ".zip";
+const RES_PACK_ARCH_EXT = ".zip";
 
 function findGame() {
   try {
@@ -69,7 +69,8 @@ function testResPack(files: string[], gameID: string, archive: string) {
   let supported =
        gameID === GAME_ID
     && !(path.extname(archive).toLowerCase() === MOD_FILE_EXT)
-    && files.find((file) => path.extname(file).toLowerCase() === RES_PACK_FILE_EXT) !== undefined; 
+    && (files.find((file) => path.extname(file).toLowerCase() === RES_PACK_FILE_EXT) !== undefined
+    || files.find((file) => path.extname(file).toLowerCase() === RES_PACK_ARCH_EXT)!== undefined); 
 
   return Promise.resolve({
     supported,
@@ -90,8 +91,24 @@ function installMod(
   const modtypeAttr: types.IInstruction = {
     type: "setmodtype", value: "minecraft-mod"
   };
+  
+  if (files.length === 1) {
+    const instructions: types.IInstruction[] = files.reduce(
+      (accum: types.IInstruction[], filePath: string) => {    
+        accum.push({
+          type: 'copy',
+          source: filePath,
+          destination: path.basename(filePath)
+        });
+  
+        return accum;
+      }, [ modtypeAttr ]
+    );
 
-  if (path.extname(archive).toLowerCase() === MOD_FILE_EXT) {
+    return Promise.resolve({ instructions });
+  } else {
+    // Presently, this makes the installer invalid. Works for me, though. I'm
+    // keeping it until I find a better way to do things.
     const archives: string[] = [archive]
 
     const instructions: types.IInstruction[] = archives.reduce(
@@ -101,20 +118,6 @@ function installMod(
           source: archivePath,
           destination: path.basename(archivePath)
         });    
-        return accum;
-      }, [ modtypeAttr ]
-    );
-
-    return Promise.resolve({ instructions });
-  } else {
-    const instructions: types.IInstruction[] = files.reduce(
-      (accum: types.IInstruction[], filePath: string) => {    
-        accum.push({
-          type: 'copy',
-          source: filePath,
-          destination: path.basename(filePath)
-        });
-  
         return accum;
       }, [ modtypeAttr ]
     );
@@ -137,20 +140,37 @@ function installResPack(
     type: "setmodtype", value: "resource-pack"
   };
 
-  const archives: string[] = [archive]
+  if (files.length === 1) {
+    const instructions: types.IInstruction[] = files.reduce(
+      (accum: types.IInstruction[], filePath: string) => {    
+        accum.push({
+          type: 'copy',
+          source: filePath,
+          destination: path.basename(filePath)
+        });
+  
+        return accum;
+      }, [ modtypeAttr ]
+    );
 
-  const instructions: types.IInstruction[] = archives.reduce(
-    (accum: types.IInstruction[], archivePath: string) => {    
-      accum.push({
-        type: 'copy',
-        source: archivePath,
-        destination: path.basename(archivePath)
-      });    
-      return accum;
-    }, [ modtypeAttr ]
-  );
+    return Promise.resolve({ instructions });
+  } else {
+    // Same goes here.
+    const archives: string[] = [archive]
+    
+    const instructions: types.IInstruction[] = archives.reduce(
+      (accum: types.IInstruction[], archivePath: string) => {    
+        accum.push({
+          type: 'copy',
+          source: archivePath,
+          destination: path.basename(archivePath)
+        });    
+        return accum;
+      }, [ modtypeAttr ]
+    );
 
-  return Promise.resolve({ instructions });
+    return Promise.resolve({ instructions });
+  }
 }
 
 function main(context: types.IExtensionContext) {
