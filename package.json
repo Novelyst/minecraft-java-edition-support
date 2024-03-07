@@ -22,8 +22,5 @@
     "eslint": "^8.52.0",
     "typescript": "^4.4.4",
     "vortex-api": "Nexus-Mods/vortex-api"
-  },
-  "dependencies": {
-    "jszip": "^3.10.1"
   }
 }
