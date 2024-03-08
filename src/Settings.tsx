@@ -20,7 +20,7 @@ function Settings() {
 
   return (
     <form>
-      <FormGroup controlId="default-disable">
+      <FormGroup controlId="default-enable">
         <Panel>
           <Panel.Body>
             <ControlLabel>{t("Minecraft: Java Edition")}</ControlLabel>

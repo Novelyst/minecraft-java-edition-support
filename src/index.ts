@@ -1,8 +1,5 @@
 import * as path from "path";
-import { useSelector, useStore } from "react-redux";
 import { fs, types, util } from "vortex-api";
-import { IExtensionApi, IInstruction } from "vortex-api/lib/types/IExtensionContext";
-import * as actions from "./actions";
 
 const LAUNCH_DEF = "C:/Program Files (x86)/Minecraft Launcher";
 
@@ -43,14 +40,6 @@ function prepareForModding() {
   return fs.ensureDirAsync(modsPath());
 }
 
-function isResPackLoose(_api: IExtensionApi, _instructions: IInstruction[]): Promise<boolean> {
-  const userPref: boolean = useSelector((state: types.IState) => {
-    return state.settings[GAME_ID]?.resourcePackExtraction;
-  });
-  
-  return userPref !== null ? Promise.resolve(userPref) : Promise.resolve(false);
-}
-
 function testMod(files: string[], gameID: string, archive: string) {
   // Check that the game is supported, and that either the archive or a file in
   // the archive is a .jar file.
@@ -73,7 +62,7 @@ function testResPackLoose(files: string[], gameID: string, archive: string) {
     && !(files.find((file) => path.extname(file).toLowerCase() === ".zip") !== undefined); 
 
   return Promise.resolve({
-    supported,
+    supported: false,
     requiredFiles: []
   });
 }
@@ -93,14 +82,11 @@ function testResPackArch(files: string[], gameID: string, archive: string) {
   });
 }
 
-function installMod(
+async function installMod(
   files: string[],
-  _destinationPath: string,
+  destinationPath: string,
   _gameID: string,
-  _progressDelegate: types.ProgressDelegate,
-  _choices: any,
-  _unattended: any,
-  archivePath: string
+  _progressDelegate: types.ProgressDelegate
 ): Promise<types.IInstallResult> {
   if (files.length === 1) {
     const filePath = files[0];
@@ -114,13 +100,20 @@ function installMod(
 
     return Promise.resolve({ instructions });
   } else {
-    // The new, magical method?
-    const archive: string = fs.readFileAsync(archivePath);
+    // Double-zipping method.
+    const sevenZip = new util.SevenZip();
+    const archiveName = path.basename(destinationPath, '.installing') + '.zip';
+    const archivePath = path.join(destinationPath, archiveName);
+    const rootRelPaths = await fs.readdirAsync(destinationPath);
+
+    await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
+      return path.join(destinationPath, relPath);
+    }), { raw: ['-r'] });
 
     const instructions: types.IInstruction[] = [{
-      type: "generatefile",
-      data: archive,
-      destination: path.basename(archivePath)
+      type: "copy",
+      data: archiveName,
+      destination: archiveName
     }];
 
     return Promise.resolve({ instructions });
@@ -152,20 +145,19 @@ function installResPackLoose(
   return Promise.resolve({ instructions });
 }
 
-function installResPackArch(
+async function installResPackArch(
   files: string[],
-  _destinationPath: string,
+  destinationPath: string,
   _gameID: string,
-  _progressDelegate: types.ProgressDelegate,
-  _choices: any,
-  _unattended: any,
-  archivePath: string
+  _progressDelegate: types.ProgressDelegate
 ): Promise<types.IInstallResult> {
+  const zipFiles = files.filter(file => ['.zip'].includes(path.extname(file)));
+  
   const modtypeAttr: types.IInstruction = {
     type: "setmodtype", value: "resource-pack"
   };
 
-  if (files.length === 1) {
+  if (zipFiles.length > 0) {
     const instructions: types.IInstruction[] = files.reduce(
       (accum: types.IInstruction[], filePath: string) => {    
         accum.push({
@@ -181,12 +173,20 @@ function installResPackArch(
     return Promise.resolve({ instructions });
   } else {
     // Same goes here.
-    const archive: string = fs.readFileAsync(archivePath);
+    // Double-zipping method.
+    const sevenZip = new util.SevenZip();
+    const archiveName = path.basename(destinationPath, '.installing') + '.zip';
+    const archivePath = path.join(destinationPath, archiveName);
+    const rootRelPaths = await fs.readdirAsync(destinationPath);
+
+    await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
+      return path.join(destinationPath, relPath);
+    }), { raw: ['-r'] });
 
     const instructions: types.IInstruction[] = [{
-      type: "generatefile",
-      data: archive,
-      destination: path.basename(archivePath)
+      type: "copy",
+      data: archiveName,
+      destination: archiveName
     }];
 
     return Promise.resolve({ instructions });
@@ -211,14 +211,12 @@ function main(context: types.IExtensionContext) {
   context.registerInstaller("resource-pack", 25, testResPackArch, installResPackArch);
   context.registerModType(
     "minecraft-mod", 25, (gameID) => gameID === GAME_ID,
-    modsPath,
-    () => true,
+    modsPath, () => true,
     { name: "Default" }
   );
   context.registerModType(
     "resource-pack", 25, (gameID) => gameID === GAME_ID,
-    () => path.join(dataPath(), "resourcepacks"),
-    instructions => isResPackLoose(context.api, instructions),
+    () => path.join(dataPath(), "resourcepacks"), () => true,
     { name: "Resource Pack" }
   );
 
