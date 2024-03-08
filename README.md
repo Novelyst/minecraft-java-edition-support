@@ -15,3 +15,4 @@ Presently, this extension can manage manually installed mods that are archived. 
 
 - Recognition of Forge and Fabric.
 - Compatibility warnings.
+- Reading mod metadata in order to reduce user headache given lots of manual installation.

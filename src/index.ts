@@ -1,19 +1,13 @@
 import * as path from "path";
+import { useSelector, useStore } from "react-redux";
 import { fs, types, util } from "vortex-api";
 import { IExtensionApi, IInstruction } from "vortex-api/lib/types/IExtensionContext";
+import * as actions from "./actions";
+
+const LAUNCH_DEF = "C:/Program Files (x86)/Minecraft Launcher";
 
 const GAME_ID = "minecraft";
 const MS_ID = "Microsoft.4297127D64EC6";
-
-const LAUNCH_DEF = "C:/Program Files (x86)/Minecraft Launcher";
-const SETTINGS = "./settings.json";
-
-const WIN_EXE = "Minecraft.exe";
-const LEG_EXE = "MinecraftLauncher.exe";
-
-const MOD_FILE_EXT = ".jar";
-const RES_PACK_FILE_EXT = ".mcmeta";
-const RES_PACK_ARCH_EXT = ".zip";
 
 function findGame() {
   try {
@@ -21,7 +15,7 @@ function findGame() {
     return util.GameStoreHelper.findByAppId([MS_ID]).then((game) => game.gamePath);
   } catch (error) {
     try {
-      fs.accessSync(path.join(LAUNCH_DEF, LEG_EXE), fs.constants.F_OK);
+      fs.accessSync(path.join(LAUNCH_DEF, "MinecraftLauncher.exe"), fs.constants.F_OK);
 
       return LAUNCH_DEF;
     } catch (error) {
@@ -31,7 +25,7 @@ function findGame() {
 }
 
 function dataPath() {
-  return path.join(util.getVortexPath("appData"), ".minecraft");
+  return path.join(util.getVortexPath("appData"), GAME_ID);
 }
 
 // Add some kind of check that the .minecraft directory is writeable. If not,
@@ -42,42 +36,19 @@ function modsPath() {
 }
 
 function findExe(): string {
-  return findGame() !== LAUNCH_DEF ? WIN_EXE : LEG_EXE;
+  return findGame() !== LAUNCH_DEF ? "Minecraft.exe" : "MinecraftLauncher.exe";
 }
 
 function prepareForModding() {
   return fs.ensureDirAsync(modsPath());
 }
 
-function isResPackLoose(api: IExtensionApi, instructions: IInstruction[]): Promise<boolean> {
-  const userPref = JSON.parse(fs.readFileAsync(SETTINGS, { encoding: "utf8" }));
+function isResPackLoose(_api: IExtensionApi, _instructions: IInstruction[]): Promise<boolean> {
+  const userPref: boolean = useSelector((state: types.IState) => {
+    return state.settings[GAME_ID]?.resourcePackExtraction;
+  });
   
-  if (userPref.extractResourcePacks !== null) {
-    return Promise.resolve(userPref.extractResourcePacks);
-  }
-  const installationType = api.showDialog("question", "Confirm insallation type", {
-    text: "Would you like to extract this resource pack "
-      + "and install it as loose files?"
-  }, [
-    { label: "No"}, { label: "Yes", default: true }
-  ]).then(result => result.action === "Yes");
-
-  // Comment this later? Most other things here are more readable.
-  if (userPref.askAboutPreference !== false) {
-    userPref.askAboutPreference = api.showDialog("question", "Confirm installation preference", {
-      text: "Would you like to install resource packs according to that "
-      + "preference by default in the future?"
-    }, [
-      { label: "No"}, { label: "Yes", default: true }, { label: "Don't ask me again" }
-    ]).then(result => {
-      if (result.action === "Yes") {
-        userPref.extractResourcePacks = installationType
-      } else
-      return result.action !== "Don't ask me again";
-    });
-    fs.writeFileAsync(SETTINGS, JSON.stringify(userPref));
-  }
-  return Promise.resolve(installationType);
+  return userPref !== null ? Promise.resolve(userPref) : Promise.resolve(false);
 }
 
 function testMod(files: string[], gameID: string, archive: string) {
@@ -85,8 +56,8 @@ function testMod(files: string[], gameID: string, archive: string) {
   // the archive is a .jar file.
   let supported =
        gameID === GAME_ID
-    && (path.extname(archive).toLowerCase() === MOD_FILE_EXT
-    || path.extname(files[0]).toLowerCase() === MOD_FILE_EXT);
+    && (path.extname(archive).toLowerCase() === ".jar"
+    || path.extname(files[0]).toLowerCase() === ".jar");
 
   return Promise.resolve({
     supported,
@@ -98,8 +69,8 @@ function testResPackLoose(files: string[], gameID: string, archive: string) {
   // Checking that it's not an archive in an archive.
   let supported =
        gameID === GAME_ID
-    && !(path.extname(archive).toLowerCase() === MOD_FILE_EXT)
-    && !(files.find((file) => path.extname(file).toLowerCase() === RES_PACK_ARCH_EXT) !== undefined); 
+    && !(path.extname(archive).toLowerCase() === ".jar")
+    && !(files.find((file) => path.extname(file).toLowerCase() === ".zip") !== undefined); 
 
   return Promise.resolve({
     supported,
@@ -112,9 +83,9 @@ function testResPackArch(files: string[], gameID: string, archive: string) {
   // that it contains an .mcmeta file.
   let supported =
        gameID === GAME_ID
-    && !(path.extname(archive).toLowerCase() === MOD_FILE_EXT)
-    && (files.find((file) => path.extname(file).toLowerCase() === RES_PACK_FILE_EXT) !== undefined
-    || files.find((file) => path.extname(file).toLowerCase() === RES_PACK_ARCH_EXT) !== undefined); 
+    && !(path.extname(archive).toLowerCase() === ".jar")
+    && (files.find((file) => path.extname(file).toLowerCase() === ".mcmeta") !== undefined
+    || files.find((file) => path.extname(file).toLowerCase() === ".zip") !== undefined); 
 
   return Promise.resolve({
     supported,
@@ -124,17 +95,13 @@ function testResPackArch(files: string[], gameID: string, archive: string) {
 
 function installMod(
   files: string[],
-  destinationPath: string,
-  gameID: string,
-  progressDelegate: types.ProgressDelegate,
-  choices: any,
-  unattended: any,
+  _destinationPath: string,
+  _gameID: string,
+  _progressDelegate: types.ProgressDelegate,
+  _choices: any,
+  _unattended: any,
   archivePath: string
 ): Promise<types.IInstallResult> {
-  const modTypeAttr: types.IInstruction = {
-    type: "setmodtype", value: "minecraft-mod"
-  };
-  
   if (files.length === 1) {
     const filePath = files[0];
     const instructions: types.IInstruction[] = [
@@ -162,9 +129,9 @@ function installMod(
 
 function installResPackLoose(
   files: string[],
-  destinationPath: string,
-  gameID: string,
-  progressDelegate: types.ProgressDelegate
+  _destinationPath: string,
+  _gameID: string,
+  _progressDelegate: types.ProgressDelegate
 ): Promise<types.IInstallResult> {
   const modtypeAttr: types.IInstruction = {
     type: "setmodtype", value: "resource-pack"
@@ -187,11 +154,11 @@ function installResPackLoose(
 
 function installResPackArch(
   files: string[],
-  destinationPath: string,
-  gameID: string,
-  progressDelegate: types.ProgressDelegate,
-  choices: any,
-  unattended: any,
+  _destinationPath: string,
+  _gameID: string,
+  _progressDelegate: types.ProgressDelegate,
+  _choices: any,
+  _unattended: any,
   archivePath: string
 ): Promise<types.IInstallResult> {
   const modtypeAttr: types.IInstruction = {

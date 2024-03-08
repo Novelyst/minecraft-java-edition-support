@@ -19,6 +19,8 @@
       "out"
     ],
   "files": [
-    "src/index.ts"
+    "src/actions.ts",
+    "src/index.ts",
+    "src/Settings.tsx"
   ]
 }
