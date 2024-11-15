@@ -99,7 +99,7 @@ async function installMod(
     return Promise.resolve({ instructions });
   } else {
     const sevenZip = new util.SevenZip();
-    const archiveName = path.basename(destinationPath, '.installing') + '.zip';
+    const archiveName = path.basename(destinationPath, '.installing') + '.jar';
     const archivePath = path.join(destinationPath, archiveName);
     const rootRelPaths = await fs.readdirAsync(destinationPath);
     
