@@ -1,10 +1,12 @@
 import * as path from "path";
 import { fs, types, util } from "vortex-api";
 
-const LAUNCH_DEF = "C:/Program Files (x86)/Minecraft Launcher";
-
-const GAME_ID = "minecraft";
-const MS_ID = "Microsoft.4297127D64EC6";
+import { 
+  LAUNCH_DEF, LAUNCHER,
+  GAME_ID, MS_ID,
+  MOD_TYPE_DEF, MOD_TYPE_RES_PACK
+ } from "./common";
+import { setModType } from "vortex-api/lib/actions";
 
 function findGame() {
   try {
@@ -12,7 +14,7 @@ function findGame() {
     return util.GameStoreHelper.findByAppId([MS_ID]).then((game) => game.gamePath);
   } catch (error) {
     try {
-      fs.accessSync(path.join(LAUNCH_DEF, "MinecraftLauncher.exe"), fs.constants.F_OK);
+      fs.accessSync(path.join(LAUNCH_DEF, LAUNCHER), fs.constants.F_OK);
 
       return LAUNCH_DEF;
     } catch (error) {
@@ -22,7 +24,7 @@ function findGame() {
 }
 
 function dataPath() {
-  return path.join(util.getVortexPath("appData"), GAME_ID);
+  return path.join(util.getVortexPath("appData"), ".minecraft");
 }
 
 // Add some kind of check that the .minecraft directory is writeable. If not,
@@ -33,7 +35,7 @@ function modsPath() {
 }
 
 function findExe(): string {
-  return findGame() !== LAUNCH_DEF ? "Minecraft.exe" : "MinecraftLauncher.exe";
+  return findGame() !== LAUNCH_DEF ? "Minecraft.exe" : LAUNCHER;
 }
 
 function prepareForModding() {
@@ -48,10 +50,7 @@ function testMod(files: string[], gameID: string, archive: string) {
     && (path.extname(archive).toLowerCase() === ".jar"
     || path.extname(files[0]).toLowerCase() === ".jar");
 
-  return Promise.resolve({
-    supported,
-    requiredFiles: []
-  });
+  return Promise.resolve({supported, requiredFiles: []});
 }
 
 function testResPackLoose(files: string[], gameID: string, archive: string) {
@@ -61,10 +60,7 @@ function testResPackLoose(files: string[], gameID: string, archive: string) {
     && !(path.extname(archive).toLowerCase() === ".jar")
     && !(files.find((file) => path.extname(file).toLowerCase() === ".zip") !== undefined); 
 
-  return Promise.resolve({
-    supported: false,
-    requiredFiles: []
-  });
+  return Promise.resolve({supported: false, requiredFiles: []});
 }
 
 function testResPackArch(files: string[], gameID: string, archive: string) {
@@ -76,10 +72,7 @@ function testResPackArch(files: string[], gameID: string, archive: string) {
     && (files.find((file) => path.extname(file).toLowerCase() === ".mcmeta") !== undefined
     || files.find((file) => path.extname(file).toLowerCase() === ".zip") !== undefined); 
 
-  return Promise.resolve({
-    supported,
-    requiredFiles: []
-  });
+  return Promise.resolve({supported, requiredFiles: []});
 }
 
 async function installMod(
@@ -88,31 +81,41 @@ async function installMod(
   _gameID: string,
   _progressDelegate: types.ProgressDelegate
 ): Promise<types.IInstallResult> {
+  const modTypeAttr: types.IInstruction = {
+    type: "setmodtype",
+    value: MOD_TYPE_DEF
+  }
+  
   if (files.length === 1) {
     const filePath = files[0];
+
     const instructions: types.IInstruction[] = [
-      {    
-        type: "copy",
-        source: filePath,
-        destination: path.basename(filePath)
-      }
-    ];
+      modTypeAttr, {
+      type: "copy",
+      source: filePath,
+      destination: path.basename(filePath)
+    }];
 
     return Promise.resolve({ instructions });
   } else {
-    // Double-zipping method.
     const sevenZip = new util.SevenZip();
     const archiveName = path.basename(destinationPath, '.installing') + '.zip';
     const archivePath = path.join(destinationPath, archiveName);
     const rootRelPaths = await fs.readdirAsync(destinationPath);
-
+    
     await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
       return path.join(destinationPath, relPath);
     }), { raw: ['-r'] });
 
-    const instructions: types.IInstruction[] = [{
-      type: "copy",
-      data: archiveName,
+    const data = await fs.readFileAsync(archivePath);
+    
+    // I don't love that we're doing this, because this method apparently craps
+    // out with files greater than 2 GB, but this is finally a working solution
+    // so… unless I find a way to make the other way work, this is it.
+    const instructions: types.IInstruction[] = [
+      modTypeAttr, {
+      type: "generatefile",
+      data: data,
       destination: archiveName
     }];
 
@@ -120,16 +123,19 @@ async function installMod(
   }
 }
 
-function installResPackLoose(
+// From what I can tell, this doesn't work right, even though it's literally
+// just the plain archive unpacking behaviour. All I can say is that me and the
+// "copy" instruction type aren't on good terms right now.
+async function installResPackLoose(
   files: string[],
   _destinationPath: string,
   _gameID: string,
   _progressDelegate: types.ProgressDelegate
 ): Promise<types.IInstallResult> {
-  const modtypeAttr: types.IInstruction = {
-    type: "setmodtype", value: "resource-pack"
-  };
-  
+  const modTypeAttr: types.IInstruction = {
+    type: "setmodtype",
+    value: MOD_TYPE_RES_PACK
+  }
   const instructions: types.IInstruction[] = files.reduce(
     (accum: types.IInstruction[], filePath: string) => {    
       accum.push({
@@ -139,7 +145,7 @@ function installResPackLoose(
       });
 
       return accum;
-    }, [ modtypeAttr ]
+    }, [ modTypeAttr ]
   );
 
   return Promise.resolve({ instructions });
@@ -151,11 +157,11 @@ async function installResPackArch(
   _gameID: string,
   _progressDelegate: types.ProgressDelegate
 ): Promise<types.IInstallResult> {
+  const modTypeAttr: types.IInstruction = {
+    type: "setmodtype",
+    value: MOD_TYPE_RES_PACK
+  }
   const zipFiles = files.filter(file => ['.zip'].includes(path.extname(file)));
-  
-  const modtypeAttr: types.IInstruction = {
-    type: "setmodtype", value: "resource-pack"
-  };
 
   if (zipFiles.length > 0) {
     const instructions: types.IInstruction[] = files.reduce(
@@ -167,13 +173,11 @@ async function installResPackArch(
         });
   
         return accum;
-      }, [ modtypeAttr ]
+      }, [ modTypeAttr ]
     );
 
     return Promise.resolve({ instructions });
   } else {
-    // Same goes here.
-    // Double-zipping method.
     const sevenZip = new util.SevenZip();
     const archiveName = path.basename(destinationPath, '.installing') + '.zip';
     const archivePath = path.join(destinationPath, archiveName);
@@ -183,9 +187,12 @@ async function installResPackArch(
       return path.join(destinationPath, relPath);
     }), { raw: ['-r'] });
 
-    const instructions: types.IInstruction[] = [{
-      type: "copy",
-      data: archiveName,
+    const data = await fs.readFileAsync(archivePath);
+    
+    const instructions: types.IInstruction[] = [
+      modTypeAttr, {
+      type: "generatefile",
+      data: data,
       destination: archiveName
     }];
 
@@ -206,17 +213,19 @@ function main(context: types.IExtensionContext) {
     requiredFiles: [findExe()],
     setup: prepareForModding,
   });
-  context.registerInstaller("minecraft-mod", 25, testMod, installMod);
-  context.registerInstaller("resource-pack", 25, testResPackLoose, installResPackLoose);
-  context.registerInstaller("resource-pack", 25, testResPackArch, installResPackArch);
+
+  context.registerInstaller(MOD_TYPE_DEF, 25, testMod, installMod);
+  context.registerInstaller(MOD_TYPE_RES_PACK, 25, testResPackLoose, installResPackLoose);
+  context.registerInstaller(MOD_TYPE_RES_PACK, 25, testResPackArch, installResPackArch);
+
   context.registerModType(
-    "minecraft-mod", 25, (gameID) => gameID === GAME_ID,
-    modsPath, () => true,
+    MOD_TYPE_DEF, 25, (gameID) => gameID === GAME_ID,
+    modsPath, () => Promise.resolve(true),
     { name: "Default" }
   );
   context.registerModType(
-    "resource-pack", 25, (gameID) => gameID === GAME_ID,
-    () => path.join(dataPath(), "resourcepacks"), () => true,
+    MOD_TYPE_RES_PACK, 25, (gameID) => gameID === GAME_ID,
+    () => path.join(dataPath(), "resourcepacks"), () => Promise.resolve(true),
     { name: "Resource Pack" }
   );
 
