@@ -85,8 +85,10 @@ async function installMod(
     type: "setmodtype",
     value: MOD_TYPE_DEF
   }
+
+  const jarFiles = files.filter(file => ['.jar'].includes(path.extname(file)));
   
-  if (files.length === 1) {
+  if (jarFiles.length === files.length) {
     const filePath = files[0];
 
     const instructions: types.IInstruction[] = [
@@ -136,6 +138,7 @@ async function installResPackLoose(
     type: "setmodtype",
     value: MOD_TYPE_RES_PACK
   }
+
   const instructions: types.IInstruction[] = files.reduce(
     (accum: types.IInstruction[], filePath: string) => {    
       accum.push({
@@ -161,9 +164,10 @@ async function installResPackArch(
     type: "setmodtype",
     value: MOD_TYPE_RES_PACK
   }
+
   const zipFiles = files.filter(file => ['.zip'].includes(path.extname(file)));
 
-  if (zipFiles.length > 0) {
+  if (zipFiles.length === files.length) {
     const instructions: types.IInstruction[] = files.reduce(
       (accum: types.IInstruction[], filePath: string) => {    
         accum.push({
