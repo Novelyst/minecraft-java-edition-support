@@ -4,9 +4,10 @@ import { fs, types, util } from "vortex-api";
 import { 
   LAUNCH_DEF, LAUNCHER,
   GAME_ID, MS_ID,
-  MOD_TYPE_DEF, MOD_TYPE_RES_PACK
+  MOD_TYPE_DEF, MOD_TYPE_RES_PACK, MOD_TYPE_DAT_PACK, MOD_TYPE_SHA_PACK
  } from "./common";
-import { setModType } from "vortex-api/lib/actions";
+
+const WORLD = ""
 
 function findGame() {
   try {
@@ -64,15 +65,40 @@ function testResPackLoose(files: string[], gameID: string, archive: string) {
 }
 
 function testResPackArch(files: string[], gameID: string, archive: string) {
+  // Check that the game is supported, that the archive isn't a .jar file, that
+  // there is an "assets" folder, and that it contains an .mcmeta file, or that
+  // there is a .zip within the .zip.
+  let supported =
+       gameID === GAME_ID
+    && !(path.extname(archive).toLowerCase() === ".jar")
+    && ((files.find((file) => path.extname(file).toLowerCase() === ".mcmeta") !== undefined
+    && files.find((file) => file.toLowerCase() === "assets\\") !== undefined)
+    || files.find((file) => path.extname(file).toLowerCase() === ".zip") !== undefined); 
+
+  return Promise.resolve({supported, requiredFiles: []});
+}
+
+function testShaPackArch(files: string[], gameID: string, archive: string) {
   // Check that the game is supported, that the archive isn't a .jar file, and
-  // that it contains an .mcmeta file.
+  // that there is a "shaders" folder.
+  let supported =
+       gameID === GAME_ID
+    && !(path.extname(archive).toLowerCase() === ".jar")
+    && files.find((file) => file.toLowerCase() === "shaders\\") !== undefined;
+
+  return Promise.resolve({supported, requiredFiles: []});
+}
+
+function testDatPackArch(files: string[], gameID: string, archive: string) {
+  // Check that the game is supported, that the archive isn't a .jar file, that
+  // there is a "data" folder, and that it contains an .mcmeta file.
   let supported =
        gameID === GAME_ID
     && !(path.extname(archive).toLowerCase() === ".jar")
     && (files.find((file) => path.extname(file).toLowerCase() === ".mcmeta") !== undefined
-    || files.find((file) => path.extname(file).toLowerCase() === ".zip") !== undefined); 
+    && files.find((file) => file.toLowerCase() === "data\\") !== undefined); 
 
-  return Promise.resolve({supported, requiredFiles: []});
+  return Promise.resolve({supported: false, requiredFiles: []});
 }
 
 async function installMod(
@@ -86,28 +112,31 @@ async function installMod(
     value: MOD_TYPE_DEF
   }
 
-  const jarFiles = files.filter(file => ['.jar'].includes(path.extname(file)));
+  const jarFiles = files.filter(file => [".jar"].includes(path.extname(file)));
   
   if (jarFiles.length === files.length) {
-    const filePath = files[0];
-
-    const instructions: types.IInstruction[] = [
-      modTypeAttr, {
-      type: "copy",
-      source: filePath,
-      destination: path.basename(filePath)
-    }];
+    const instructions: types.IInstruction[] = files.reduce(
+      (accum: types.IInstruction[], filePath: string) => {    
+        accum.push({
+          type: "copy",
+          source: filePath,
+          destination: path.basename(filePath)
+        });
+  
+        return accum;
+      }, [ modTypeAttr ]
+    );
 
     return Promise.resolve({ instructions });
   } else {
     const sevenZip = new util.SevenZip();
-    const archiveName = path.basename(destinationPath, '.installing') + '.jar';
+    const archiveName = path.basename(destinationPath, ".installing") + ".jar";
     const archivePath = path.join(destinationPath, archiveName);
     const rootRelPaths = await fs.readdirAsync(destinationPath);
     
     await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
       return path.join(destinationPath, relPath);
-    }), { raw: ['-r'] });
+    }), { raw: ["-r"] });
 
     const data = await fs.readFileAsync(archivePath);
     
@@ -165,7 +194,7 @@ async function installResPackArch(
     value: MOD_TYPE_RES_PACK
   }
 
-  const zipFiles = files.filter(file => ['.zip'].includes(path.extname(file)));
+  const zipFiles = files.filter(file => [".zip"].includes(path.extname(file)));
 
   if (zipFiles.length === files.length) {
     const instructions: types.IInstruction[] = files.reduce(
@@ -183,13 +212,113 @@ async function installResPackArch(
     return Promise.resolve({ instructions });
   } else {
     const sevenZip = new util.SevenZip();
-    const archiveName = path.basename(destinationPath, '.installing') + '.zip';
+    const archiveName = path.basename(destinationPath, ".installing") + ".zip";
     const archivePath = path.join(destinationPath, archiveName);
     const rootRelPaths = await fs.readdirAsync(destinationPath);
 
     await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
       return path.join(destinationPath, relPath);
-    }), { raw: ['-r'] });
+    }), { raw: ["-r"] });
+
+    const data = await fs.readFileAsync(archivePath);
+    
+    const instructions: types.IInstruction[] = [
+      modTypeAttr, {
+      type: "generatefile",
+      data: data,
+      destination: archiveName
+    }];
+
+    return Promise.resolve({ instructions });
+  }
+}
+
+async function installShaPackArch(
+  files: string[],
+  destinationPath: string,
+  _gameID: string,
+  _progressDelegate: types.ProgressDelegate
+): Promise<types.IInstallResult> {
+  const modTypeAttr: types.IInstruction = {
+    type: "setmodtype",
+    value: MOD_TYPE_SHA_PACK
+  }
+
+  const zipFiles = files.filter(file => [".zip"].includes(path.extname(file)));
+
+  if (zipFiles.length === files.length) {
+    const instructions: types.IInstruction[] = files.reduce(
+      (accum: types.IInstruction[], filePath: string) => {    
+        accum.push({
+          type: "copy",
+          source: filePath,
+          destination: path.basename(filePath)
+        });
+  
+        return accum;
+      }, [ modTypeAttr ]
+    );
+
+    return Promise.resolve({ instructions });
+  } else {
+    const sevenZip = new util.SevenZip();
+    const archiveName = path.basename(destinationPath, ".installing") + ".zip";
+    const archivePath = path.join(destinationPath, archiveName);
+    const rootRelPaths = await fs.readdirAsync(destinationPath);
+
+    await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
+      return path.join(destinationPath, relPath);
+    }), { raw: ["-r"] });
+
+    const data = await fs.readFileAsync(archivePath);
+    
+    const instructions: types.IInstruction[] = [
+      modTypeAttr, {
+      type: "generatefile",
+      data: data,
+      destination: archiveName
+    }];
+
+    return Promise.resolve({ instructions });
+  }
+}
+
+async function installDataPackArch(
+  files: string[],
+  destinationPath: string,
+  _gameID: string,
+  _progressDelegate: types.ProgressDelegate
+): Promise<types.IInstallResult> {
+  const modTypeAttr: types.IInstruction = {
+    type: "setmodtype",
+    value: MOD_TYPE_DAT_PACK
+  }
+
+  const zipFiles = files.filter(file => [".zip"].includes(path.extname(file)));
+
+  if (zipFiles.length === files.length) {
+    const instructions: types.IInstruction[] = files.reduce(
+      (accum: types.IInstruction[], filePath: string) => {    
+        accum.push({
+          type: "copy",
+          source: filePath,
+          destination: path.basename(filePath)
+        });
+  
+        return accum;
+      }, [ modTypeAttr ]
+    );
+
+    return Promise.resolve({ instructions });
+  } else {
+    const sevenZip = new util.SevenZip();
+    const archiveName = path.basename(destinationPath, ".installing") + ".zip";
+    const archivePath = path.join(destinationPath, archiveName);
+    const rootRelPaths = await fs.readdirAsync(destinationPath);
+
+    await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
+      return path.join(destinationPath, relPath);
+    }), { raw: ["-r"] });
 
     const data = await fs.readFileAsync(archivePath);
     
@@ -221,6 +350,8 @@ function main(context: types.IExtensionContext) {
   context.registerInstaller(MOD_TYPE_DEF, 25, testMod, installMod);
   context.registerInstaller(MOD_TYPE_RES_PACK, 25, testResPackLoose, installResPackLoose);
   context.registerInstaller(MOD_TYPE_RES_PACK, 25, testResPackArch, installResPackArch);
+  context.registerInstaller(MOD_TYPE_SHA_PACK, 25, testShaPackArch, installShaPackArch);
+  // context.registerInstaller(MOD_TYPE_DAT_PACK, 25, testDatPackArch, installDataPackArch);
 
   context.registerModType(
     MOD_TYPE_DEF, 25, (gameID) => gameID === GAME_ID,
@@ -232,6 +363,16 @@ function main(context: types.IExtensionContext) {
     () => path.join(dataPath(), "resourcepacks"), () => Promise.resolve(true),
     { name: "Resource Pack" }
   );
+  context.registerModType(
+     MOD_TYPE_SHA_PACK, 25, (gameID) => gameID === GAME_ID,
+     () => path.join(dataPath(), "shaderpacks"), () => Promise.resolve(true),
+     { name: "Shader Pack" }
+  );
+  /* context.registerModType(
+    MOD_TYPE_DATA_PACK, 25, (gameID) => gameID === GAME_ID,
+    () => path.join(dataPath(), "saves", WORLD, "datapacks"), () => Promise.resolve(false),
+    { name: "Data Pack" }
+  ); */
 
   return true;
 }

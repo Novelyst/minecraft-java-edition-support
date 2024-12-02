@@ -6,3 +6,5 @@ export const MS_ID = "Microsoft.4297127D64EC6";
 
 export const MOD_TYPE_DEF = "minecraft-mod";
 export const MOD_TYPE_RES_PACK = "resource-pack";
+export const MOD_TYPE_DAT_PACK = "data-pack";
+export const MOD_TYPE_SHA_PACK = "shader-pack"
