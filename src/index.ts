@@ -2,22 +2,24 @@ import * as path from "path";
 import { fs, types, util } from "vortex-api";
 
 import { 
-  LAUNCH_DEF, LAUNCHER,
-  GAME_ID, MS_ID,
+  PATH_LAUNCH_DEF,
+  FILE_LAUNCHER, FILE_GAME,
+  ID_NEXUS, ID_MS,
+  FILE_EXT_MOD, FILE_EXT_PACK, FILE_EXT_META,
   MOD_TYPE_DEF, MOD_TYPE_RES_PACK, MOD_TYPE_DAT_PACK, MOD_TYPE_SHA_PACK
- } from "./common";
+} from "./common";
 
-const WORLD = ""
+import { installMod, installResPack, installShaPack, installDataPack } from "./installers";
 
 function findGame() {
   try {
     // I can't tell whether this works properly, but it can't hurt.
-    return util.GameStoreHelper.findByAppId([MS_ID]).then((game) => game.gamePath);
+    return util.GameStoreHelper.findByAppId([ID_MS]).then((game) => game.gamePath);
   } catch (error) {
     try {
-      fs.accessSync(path.join(LAUNCH_DEF, LAUNCHER), fs.constants.F_OK);
+      fs.accessSync(path.join(PATH_LAUNCH_DEF, FILE_LAUNCHER), fs.constants.F_OK);
 
-      return LAUNCH_DEF;
+      return PATH_LAUNCH_DEF;
     } catch (error) {
       console.log("Minecraft was not found.");
     }
@@ -36,7 +38,7 @@ function modsPath() {
 }
 
 function findExe(): string {
-  return findGame() !== LAUNCH_DEF ? "Minecraft.exe" : LAUNCHER;
+  return findGame() !== PATH_LAUNCH_DEF ? FILE_GAME : FILE_LAUNCHER;
 }
 
 function prepareForModding() {
@@ -47,9 +49,22 @@ function testMod(files: string[], gameID: string, archive: string) {
   // Check that the game is supported, and that either the archive or a file in
   // the archive is a .jar file.
   let supported =
-       gameID === GAME_ID
-    && (path.extname(archive).toLowerCase() === ".jar"
-    || path.extname(files[0]).toLowerCase() === ".jar");
+       gameID === ID_NEXUS
+    && (path.extname(archive).toLowerCase() === FILE_EXT_MOD
+    || path.extname(files[0]).toLowerCase() === FILE_EXT_MOD);
+
+  return Promise.resolve({supported, requiredFiles: []});
+}
+
+function testResPackArch(files: string[], gameID: string, archive: string) {
+  // Check that the game is supported, that there is an "assets" folder, and
+  // that it contains an .mcmeta file, or that there is a .zip within the .zip.
+  let supported =
+       gameID === ID_NEXUS
+    && ((path.extname(archive).toLowerCase() === FILE_EXT_PACK
+    && (files.find((file) => path.extname(file).toLowerCase() === FILE_EXT_META) !== undefined
+    && files.find((file) => file.toLowerCase() === "assets\\") !== undefined))
+    || files.find((file) => path.extname(file).toLowerCase() === FILE_EXT_PACK) !== undefined); 
 
   return Promise.resolve({supported, requiredFiles: []});
 }
@@ -57,33 +72,18 @@ function testMod(files: string[], gameID: string, archive: string) {
 function testResPackLoose(files: string[], gameID: string, archive: string) {
   // Checking that it's not an archive in an archive.
   let supported =
-       gameID === GAME_ID
-    && !(path.extname(archive).toLowerCase() === ".jar")
-    && !(files.find((file) => path.extname(file).toLowerCase() === ".zip") !== undefined); 
+       gameID === ID_NEXUS
+    && !(path.extname(archive).toLowerCase() === FILE_EXT_MOD)
+    && !(files.find((file) => path.extname(file).toLowerCase() === FILE_EXT_PACK) !== undefined); 
 
   return Promise.resolve({supported: false, requiredFiles: []});
 }
 
-function testResPackArch(files: string[], gameID: string, archive: string) {
-  // Check that the game is supported, that the archive isn't a .jar file, that
-  // there is an "assets" folder, and that it contains an .mcmeta file, or that
-  // there is a .zip within the .zip.
-  let supported =
-       gameID === GAME_ID
-    && !(path.extname(archive).toLowerCase() === ".jar")
-    && ((files.find((file) => path.extname(file).toLowerCase() === ".mcmeta") !== undefined
-    && files.find((file) => file.toLowerCase() === "assets\\") !== undefined)
-    || files.find((file) => path.extname(file).toLowerCase() === ".zip") !== undefined); 
-
-  return Promise.resolve({supported, requiredFiles: []});
-}
-
 function testShaPackArch(files: string[], gameID: string, archive: string) {
-  // Check that the game is supported, that the archive isn't a .jar file, and
-  // that there is a "shaders" folder.
+  // Check that the game is supported and that there is a "shaders" folder.
   let supported =
-       gameID === GAME_ID
-    && !(path.extname(archive).toLowerCase() === ".jar")
+       gameID === ID_NEXUS
+    && path.extname(archive).toLowerCase() === FILE_EXT_PACK
     && files.find((file) => file.toLowerCase() === "shaders\\") !== undefined;
 
   return Promise.resolve({supported, requiredFiles: []});
@@ -93,249 +93,17 @@ function testDatPackArch(files: string[], gameID: string, archive: string) {
   // Check that the game is supported, that the archive isn't a .jar file, that
   // there is a "data" folder, and that it contains an .mcmeta file.
   let supported =
-       gameID === GAME_ID
-    && !(path.extname(archive).toLowerCase() === ".jar")
-    && (files.find((file) => path.extname(file).toLowerCase() === ".mcmeta") !== undefined
+       gameID === ID_NEXUS
+    && path.extname(archive).toLowerCase() === FILE_EXT_PACK
+    && (files.find((file) => path.extname(file).toLowerCase() === FILE_EXT_META) !== undefined
     && files.find((file) => file.toLowerCase() === "data\\") !== undefined); 
 
   return Promise.resolve({supported: false, requiredFiles: []});
 }
 
-async function installMod(
-  files: string[],
-  destinationPath: string,
-  _gameID: string,
-  _progressDelegate: types.ProgressDelegate
-): Promise<types.IInstallResult> {
-  const modTypeAttr: types.IInstruction = {
-    type: "setmodtype",
-    value: MOD_TYPE_DEF
-  }
-
-  const jarFiles = files.filter(file => [".jar"].includes(path.extname(file)));
-  
-  if (jarFiles.length === files.length) {
-    const instructions: types.IInstruction[] = files.reduce(
-      (accum: types.IInstruction[], filePath: string) => {    
-        accum.push({
-          type: "copy",
-          source: filePath,
-          destination: path.basename(filePath)
-        });
-  
-        return accum;
-      }, [ modTypeAttr ]
-    );
-
-    return Promise.resolve({ instructions });
-  } else {
-    const sevenZip = new util.SevenZip();
-    const archiveName = path.basename(destinationPath, ".installing") + ".jar";
-    const archivePath = path.join(destinationPath, archiveName);
-    const rootRelPaths = await fs.readdirAsync(destinationPath);
-    
-    await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
-      return path.join(destinationPath, relPath);
-    }), { raw: ["-r"] });
-
-    const data = await fs.readFileAsync(archivePath);
-    
-    // I don't love that we're doing this, because this method apparently craps
-    // out with files greater than 2 GB, but this is finally a working solution
-    // so… unless I find a way to make the other way work, this is it.
-    const instructions: types.IInstruction[] = [
-      modTypeAttr, {
-      type: "generatefile",
-      data: data,
-      destination: archiveName
-    }];
-
-    return Promise.resolve({ instructions });
-  }
-}
-
-// From what I can tell, this doesn't work right, even though it's literally
-// just the plain archive unpacking behaviour. All I can say is that me and the
-// "copy" instruction type aren't on good terms right now.
-async function installResPackLoose(
-  files: string[],
-  _destinationPath: string,
-  _gameID: string,
-  _progressDelegate: types.ProgressDelegate
-): Promise<types.IInstallResult> {
-  const modTypeAttr: types.IInstruction = {
-    type: "setmodtype",
-    value: MOD_TYPE_RES_PACK
-  }
-
-  const instructions: types.IInstruction[] = files.reduce(
-    (accum: types.IInstruction[], filePath: string) => {    
-      accum.push({
-        type: "copy",
-        source: filePath,
-        destination: path.basename(filePath)
-      });
-
-      return accum;
-    }, [ modTypeAttr ]
-  );
-
-  return Promise.resolve({ instructions });
-}
-
-async function installResPackArch(
-  files: string[],
-  destinationPath: string,
-  _gameID: string,
-  _progressDelegate: types.ProgressDelegate
-): Promise<types.IInstallResult> {
-  const modTypeAttr: types.IInstruction = {
-    type: "setmodtype",
-    value: MOD_TYPE_RES_PACK
-  }
-
-  const zipFiles = files.filter(file => [".zip"].includes(path.extname(file)));
-
-  if (zipFiles.length === files.length) {
-    const instructions: types.IInstruction[] = files.reduce(
-      (accum: types.IInstruction[], filePath: string) => {    
-        accum.push({
-          type: "copy",
-          source: filePath,
-          destination: path.basename(filePath)
-        });
-  
-        return accum;
-      }, [ modTypeAttr ]
-    );
-
-    return Promise.resolve({ instructions });
-  } else {
-    const sevenZip = new util.SevenZip();
-    const archiveName = path.basename(destinationPath, ".installing") + ".zip";
-    const archivePath = path.join(destinationPath, archiveName);
-    const rootRelPaths = await fs.readdirAsync(destinationPath);
-
-    await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
-      return path.join(destinationPath, relPath);
-    }), { raw: ["-r"] });
-
-    const data = await fs.readFileAsync(archivePath);
-    
-    const instructions: types.IInstruction[] = [
-      modTypeAttr, {
-      type: "generatefile",
-      data: data,
-      destination: archiveName
-    }];
-
-    return Promise.resolve({ instructions });
-  }
-}
-
-async function installShaPackArch(
-  files: string[],
-  destinationPath: string,
-  _gameID: string,
-  _progressDelegate: types.ProgressDelegate
-): Promise<types.IInstallResult> {
-  const modTypeAttr: types.IInstruction = {
-    type: "setmodtype",
-    value: MOD_TYPE_SHA_PACK
-  }
-
-  const zipFiles = files.filter(file => [".zip"].includes(path.extname(file)));
-
-  if (zipFiles.length === files.length) {
-    const instructions: types.IInstruction[] = files.reduce(
-      (accum: types.IInstruction[], filePath: string) => {    
-        accum.push({
-          type: "copy",
-          source: filePath,
-          destination: path.basename(filePath)
-        });
-  
-        return accum;
-      }, [ modTypeAttr ]
-    );
-
-    return Promise.resolve({ instructions });
-  } else {
-    const sevenZip = new util.SevenZip();
-    const archiveName = path.basename(destinationPath, ".installing") + ".zip";
-    const archivePath = path.join(destinationPath, archiveName);
-    const rootRelPaths = await fs.readdirAsync(destinationPath);
-
-    await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
-      return path.join(destinationPath, relPath);
-    }), { raw: ["-r"] });
-
-    const data = await fs.readFileAsync(archivePath);
-    
-    const instructions: types.IInstruction[] = [
-      modTypeAttr, {
-      type: "generatefile",
-      data: data,
-      destination: archiveName
-    }];
-
-    return Promise.resolve({ instructions });
-  }
-}
-
-async function installDataPackArch(
-  files: string[],
-  destinationPath: string,
-  _gameID: string,
-  _progressDelegate: types.ProgressDelegate
-): Promise<types.IInstallResult> {
-  const modTypeAttr: types.IInstruction = {
-    type: "setmodtype",
-    value: MOD_TYPE_DAT_PACK
-  }
-
-  const zipFiles = files.filter(file => [".zip"].includes(path.extname(file)));
-
-  if (zipFiles.length === files.length) {
-    const instructions: types.IInstruction[] = files.reduce(
-      (accum: types.IInstruction[], filePath: string) => {    
-        accum.push({
-          type: "copy",
-          source: filePath,
-          destination: path.basename(filePath)
-        });
-  
-        return accum;
-      }, [ modTypeAttr ]
-    );
-
-    return Promise.resolve({ instructions });
-  } else {
-    const sevenZip = new util.SevenZip();
-    const archiveName = path.basename(destinationPath, ".installing") + ".zip";
-    const archivePath = path.join(destinationPath, archiveName);
-    const rootRelPaths = await fs.readdirAsync(destinationPath);
-
-    await sevenZip.add(archivePath, rootRelPaths.map(relPath => {
-      return path.join(destinationPath, relPath);
-    }), { raw: ["-r"] });
-
-    const data = await fs.readFileAsync(archivePath);
-    
-    const instructions: types.IInstruction[] = [
-      modTypeAttr, {
-      type: "generatefile",
-      data: data,
-      destination: archiveName
-    }];
-
-    return Promise.resolve({ instructions });
-  }
-}
-
 function main(context: types.IExtensionContext) {
   context.registerGame({
-    id: GAME_ID,
+    id: ID_NEXUS,
     name: "Minecraft: Java Edition",
     mergeMods: true,
     queryPath: findGame,
@@ -348,28 +116,28 @@ function main(context: types.IExtensionContext) {
   });
 
   context.registerInstaller(MOD_TYPE_DEF, 25, testMod, installMod);
-  context.registerInstaller(MOD_TYPE_RES_PACK, 25, testResPackLoose, installResPackLoose);
-  context.registerInstaller(MOD_TYPE_RES_PACK, 25, testResPackArch, installResPackArch);
-  context.registerInstaller(MOD_TYPE_SHA_PACK, 25, testShaPackArch, installShaPackArch);
+  context.registerInstaller(MOD_TYPE_RES_PACK, 25, testResPackArch, installResPack);
+  // context.registerInstaller(MOD_TYPE_RES_PACK, 25, testResPackLoose, installResPackLoose);
+  context.registerInstaller(MOD_TYPE_SHA_PACK, 25, testShaPackArch, installShaPack);
   // context.registerInstaller(MOD_TYPE_DAT_PACK, 25, testDatPackArch, installDataPackArch);
 
   context.registerModType(
-    MOD_TYPE_DEF, 25, (gameID) => gameID === GAME_ID,
+    MOD_TYPE_DEF, 25, (gameID) => gameID === ID_NEXUS,
     modsPath, () => Promise.resolve(true),
     { name: "Default" }
   );
   context.registerModType(
-    MOD_TYPE_RES_PACK, 25, (gameID) => gameID === GAME_ID,
+    MOD_TYPE_RES_PACK, 25, (gameID) => gameID === ID_NEXUS,
     () => path.join(dataPath(), "resourcepacks"), () => Promise.resolve(true),
     { name: "Resource Pack" }
   );
   context.registerModType(
-     MOD_TYPE_SHA_PACK, 25, (gameID) => gameID === GAME_ID,
+     MOD_TYPE_SHA_PACK, 25, (gameID) => gameID === ID_NEXUS,
      () => path.join(dataPath(), "shaderpacks"), () => Promise.resolve(true),
      { name: "Shader Pack" }
   );
   /* context.registerModType(
-    MOD_TYPE_DATA_PACK, 25, (gameID) => gameID === GAME_ID,
+    MOD_TYPE_DATA_PACK, 25, (gameID) => gameID === ID_NEXUS,
     () => path.join(dataPath(), "saves", WORLD, "datapacks"), () => Promise.resolve(false),
     { name: "Data Pack" }
   ); */
